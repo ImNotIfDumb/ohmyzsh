@@ -41,7 +41,7 @@
 # ```
 #
 # ZVM_INIT_MODE
-# the pugin initial mode (default is doing the initialization when the first
+# the plugin initial mode (default is doing the initialization when the first
 # new command line is starting. For doing the initialization instantly, you
 # can set it to `sourcing`.
 #
@@ -173,7 +173,7 @@
 # the editor to edit your command line (default is $EDITOR)
 #
 # ZVM_TMPDIR
-# the temporary directory (default is $TMPDIR, otherwise it's /tmp/)
+# the temporary directory (default is $TMPDIR, otherwise it's /tmp)
 #
 # ZVM_TERM
 # the term for handling terminal sequences, it's important for some
@@ -190,16 +190,13 @@ command -v 'zvm_version' >/dev/null && return
 typeset -gr ZVM_NAME='zsh-vi-mode'
 typeset -gr ZVM_DESCRIPTION='💻 A better and friendly vi(vim) mode plugin for ZSH.'
 typeset -gr ZVM_REPOSITORY='https://github.com/jeffreytse/zsh-vi-mode'
-typeset -gr ZVM_VERSION='0.8.4'
+typeset -gr ZVM_VERSION='0.8.5'
 
 # Plugin initial status
 ZVM_INIT_DONE=false
 
-# Postpone reset prompt (i.e. postpone the widget `reset-prompt`)
-# empty (No postponing)
-# true (Enter postponing)
-# false (Trigger reset prompt)
-ZVM_POSTPONE_RESET_PROMPT=
+# Disable reset prompt (i.e. disable the widget `reset-prompt`)
+ZVM_RESET_PROMPT_DISABLED=false
 
 # Operator pending mode
 ZVM_OPPEND_MODE=false
@@ -285,7 +282,7 @@ if $ZVM_LAZY_KEYBINDINGS; then
   ZVM_LAZY_KEYBINDINGS_LIST=()
 fi
 
-# Set the cursor stlye in defferent vi modes, the value you could use
+# Set the cursor style in defferent vi modes, the value you could use
 # the predefined value, such as $ZVM_CURSOR_BLOCK, $ZVM_CURSOR_BEAM,
 # $ZVM_CURSOR_BLINKING_BLOCK and so on.
 : ${ZVM_INSERT_MODE_CURSOR:=$ZVM_CURSOR_BEAM}
@@ -312,7 +309,7 @@ fi
 : ${ZVM_VI_HIGHLIGHT_FOREGROUND:=#eeeeee}
 : ${ZVM_VI_HIGHLIGHT_EXTRASTYLE:=default}
 : ${ZVM_VI_EDITOR:=${EDITOR:-vim}}
-: ${ZVM_TMPDIR:=${TMPDIR:-/tmp/}}
+: ${ZVM_TMPDIR:=${TMPDIR:-/tmp}}
 
 # Set the term for handling terminal sequences, it's important for some
 # terminal emulators to show cursor properly (default is $TERM)
@@ -760,13 +757,12 @@ function zvm_vi_replace() {
     zvm_select_vi_mode $ZVM_MODE_REPLACE
 
     while :; do
-      # Read a character for replacing
-      zvm_update_cursor
-
       # Redisplay the command line, this is to be called from within
       # a user-defined widget to allow changes to become visible
       zle -R
 
+      # Read a character for replacing
+      zvm_update_cursor
       read -k 1 key
 
       # Escape key will break the replacing process, and enter key
@@ -845,12 +841,6 @@ function zvm_vi_replace_chars() {
 
   # Read a character for replacing
   zvm_enter_oppend_mode
-
-  # Redisplay the command line, this is to be called from within
-  # a user-defined widget to allow changes to become visible
-  zle redisplay
-  zle -R
-
   read -k 1 key
 
   zvm_exit_oppend_mode
@@ -1747,14 +1737,18 @@ function zvm_range_handler() {
 # Edit command line in EDITOR
 function zvm_vi_edit_command_line() {
   # Create a temporary file and save the BUFFER to it
-  local tmp_file=$(mktemp ${ZVM_TMPDIR}zshXXXXXX)
-  echo "$BUFFER" > "$tmp_file"
+  local tmp_file=$(mktemp ${ZVM_TMPDIR}/zshXXXXXX)
+
+  # Some users may config the noclobber option to prevent from
+  # overwriting existing files with the > operator, we should
+  # use >! operator to ignore the noclobber.
+  echo "$BUFFER" >! "$tmp_file"
 
   # Edit the file with the specific editor, in case of
   # the warning about input not from a terminal (e.g.
   # vim), we should tell the editor input is from the
   # terminal and not from standard input.
-  $ZVM_VI_EDITOR $tmp_file </dev/tty
+  "${(@Q)${(z)${ZVM_VI_EDITOR}}}" $tmp_file </dev/tty
 
   # Reload the content to the BUFFER from the temporary
   # file after editing, and delete the temporary file.
@@ -2879,8 +2873,8 @@ function zvm_select_vi_mode() {
   zvm_exec_commands 'before_select_vi_mode'
 
   # Some plugins would reset the prompt when we select the
-  # keymap, so here we postpone executing reset-prompt.
-  zvm_postpone_reset_prompt true
+  # keymap, so here we disable the reset-prompt temporarily.
+  ZVM_RESET_PROMPT_DISABLED=true
 
   # Exit operator pending mode
   if $ZVM_OPPEND_MODE; then
@@ -2918,8 +2912,10 @@ function zvm_select_vi_mode() {
   # update the cursor, prompt and so on.
   zvm_exec_commands 'after_select_vi_mode'
 
-  # Stop and trigger reset-prompt
-  $reset_prompt && zvm_postpone_reset_prompt false true
+  # Enable reset-prompt
+  ZVM_RESET_PROMPT_DISABLED=false
+
+  # $reset_prompt && zle reset-prompt
 
   # Start the lazy keybindings when the first time entering the
   # normal mode, when the mode is the same as last mode, we get
@@ -2960,12 +2956,7 @@ function zvm_postpone_reset_prompt() {
 
 # Reset prompt
 function zvm_reset_prompt() {
-  # Return if postponing is enabled
-  if [[ -n $ZVM_POSTPONE_RESET_PROMPT ]]; then
-    ZVM_POSTPONE_RESET_PROMPT=false
-    return
-  fi
-
+  $ZVM_RESET_PROMPT_DISABLED && return
   local -i retval
   if [[ -z "$rawfunc" ]]; then
     zle .reset-prompt -- "$@"
@@ -2989,19 +2980,13 @@ function zvm_viins_undo() {
   fi
 }
 
-# Change cursor to support for inside/outside tmux
 function zvm_set_cursor() {
   # Term of vim isn't supported
   if [[ -n $VIMRUNTIME ]]; then
     return
   fi
 
-  # Tmux sequence
-  if [[ -z $TMUX ]]; then
-    echo -ne "$1"
-  else
-    echo -ne "\ePtmux;\e\e$1\e\\"
-  fi
+  echo -ne "$1"
 }
 
 # Get the escape sequence of cursor style
@@ -3016,13 +3001,13 @@ function zvm_cursor_style() {
     # 256 colors the same way xterm does.
     xterm*|rxvt*|screen*|tmux*|konsole*|alacritty*|st*)
       case $style in
-        $ZVM_CURSOR_USER_DEFAULT) style='\e[0 q';;
         $ZVM_CURSOR_BLOCK) style='\e[2 q';;
         $ZVM_CURSOR_UNDERLINE) style='\e[4 q';;
         $ZVM_CURSOR_BEAM) style='\e[6 q';;
         $ZVM_CURSOR_BLINKING_BLOCK) style='\e[1 q';;
         $ZVM_CURSOR_BLINKING_UNDERLINE) style='\e[3 q';;
         $ZVM_CURSOR_BLINKING_BEAM) style='\e[5 q';;
+        $ZVM_CURSOR_USER_DEFAULT) style='\e[0 q';;
       esac
       ;;
     *) style='\e[0 q';;
@@ -3146,8 +3131,10 @@ function zvm_zle-line-pre-redraw() {
   # update cursor style when line is redrawing.
   if [[ -n $TMUX ]]; then
     zvm_update_cursor
-    # Fix display is not updated in the terminal of InteliJ IDE
-    zle redisplay
+    # Fix display is not updated in the terminal of IntelliJ IDE.
+    # We should update display only when the last widget isn't a
+    # completion widget
+    [[ $LASTWIDGET =~ 'complet' ]] || zle redisplay
   fi
   zvm_update_highlight
   zvm_update_repeat_commands
@@ -3275,6 +3262,14 @@ function zvm_init() {
   zvm_bindkey viins '^U' zvm_viins_undo
   zvm_bindkey viins '^Y' yank
   zvm_bindkey viins '^_' undo
+
+  # Mode agnostic editing
+  zvm_bindkey viins '^[[H'  beginning-of-line
+  zvm_bindkey vicmd '^[[H'  beginning-of-line
+  zvm_bindkey viins '^[[F'  end-of-line
+  zvm_bindkey vicmd '^[[F'  end-of-line
+  zvm_bindkey viins '^[[3~' delete-char
+  zvm_bindkey vicmd '^[[3~' delete-char
 
   # History search
   zvm_bindkey viins '^R' history-incremental-search-backward
