@@ -22,7 +22,7 @@ function parse_git_branch() {
 }
 
 function git_prompt_info() {
-  local branch_name="$(parse_git_branch)"
+  local branch_name="$(parse_git_branch 2>/dev/null)"
   if [ "$branch_name" ]; then
     branch_name=" $branch_name"
     # echo "branch_name=$branch_name"
