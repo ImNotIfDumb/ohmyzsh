@@ -40,6 +40,7 @@ To learn more, visit [ohmyz.sh](https://ohmyz.sh), follow [@ohmyzsh](https://twi
     - [Manual Installation](#manual-installation)
   - [Installation Problems](#installation-problems)
   - [Custom Plugins and Themes](#custom-plugins-and-themes)
+  - [Enable GNU ls in macOS and freeBSD systems](#enable-gnu-ls)
   - [Skip aliases](#skip-aliases)
 - [Getting Updates](#getting-updates)
   - [Updates verbosity](#updates-verbosity)
