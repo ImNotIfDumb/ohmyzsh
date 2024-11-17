@@ -7,6 +7,14 @@ alias pyfind='find . -name "*.py"'
 # Remove python compiled byte-code and mypy/pytest cache in either the current
 # directory or in a list of specified directories (including sub directories).
 function pyclean() {
+  getopts "h" opt
+  if [[ "$opt" == "h" ]]; then
+    echo "Usage: pyclean [DIRS...]"
+    echo "Remove python compiled byte-code and mypy/pytest cache in either the current"
+    echo "directory or in a list of specified directories (including sub directories)."
+    return 0
+  fi
+    
   find "${@:-.}" -type f -name "*.py[co]" -delete
   find "${@:-.}" -type d -name "__pycache__" -delete
   find "${@:-.}" -depth -type d -name ".mypy_cache" -exec rm -r "{}" +
