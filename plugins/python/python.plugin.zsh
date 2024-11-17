@@ -1,5 +1,5 @@
 # set python command if 'py' not installed
-builtin which py > /dev/null || alias py='python3'
+builtin which py > /dev/null || alias py='python'
 
 # Find python file
 alias pyfind='find . -name "*.py"'
